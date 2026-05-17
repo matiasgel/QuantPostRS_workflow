@@ -1,0 +1,19 @@
+# LaTeX generated files
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+# Python/Sage generated files
+__pycache__/
+*.pyc
+*.sage.py
+# Temporary files
+*.tmp
+*.bak
+# Local scratch space
+working/scratch/
+# Optional generated PDFs
+reviews/current/*.pdf
