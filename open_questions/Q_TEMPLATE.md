@@ -6,7 +6,7 @@ status: open
 created: YYYY-MM-DD
 author: <autor>
 source_tex:
-  file: QuantPostRS_DocumentoReferenciaDeContexto_agent_friendly.tex
+  file: Problema.tex
   sections: [<sec>]
 depends_on: []
 tags: []
@@ -16,9 +16,9 @@ tags: []
 
 ## Descripción
 
-Describe claramente qué pregunta o aspecto no resuelto del documento deseas abordar. Cita las secciones relevantes del `.tex` y explica por qué esta cuestión permanece abierta.
+Describe claramente qué pregunta o aspecto no resuelto de `Problema.tex` deseas abordar. Cita las secciones relevantes de `Problema.tex` y explica por qué esta cuestión permanece abierta.
 
-## Contexto en el `.tex`
+## Contexto en `Problema.tex`
 
 - Ubicación (sección, subsección, línea, etiqueta).
 - Enunciados o fórmulas relacionados.

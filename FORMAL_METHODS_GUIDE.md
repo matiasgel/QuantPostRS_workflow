@@ -6,7 +6,7 @@ Esta guía explica la filosofía y los métodos que guían el trabajo formal asi
 
 ## Ciclo de investigación propuesto
 
-1. **Autoridad del `Problema.tex`**: El documento de referencia fija las convenciones, los resultados establecidos y las preguntas abiertas.
+1. **Autoridad de `Problema.tex`**: `Problema.tex` fija las convenciones, los resultados establecidos y las preguntas abiertas.
 2. **Pregunta abierta**: El investigador detecta una pregunta que aún no está resuelta.
 3. **Claim candidato**: Se formula un claim mínimo que, de ser demostrado, avanza la pregunta abierta.
 4. **Residuo formal**: El claim se traduce a expresiones que permiten calcular un residuo (la diferencia entre ambas partes de la identidad o el operador).

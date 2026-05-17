@@ -2,7 +2,7 @@
 
 ## Misión del repositorio
 
-Este repositorio está destinado a realizar trabajo teórico formal asistido sobre el documento de referencia QuantPostRS. El archivo `Problema.tex` es la fuente autorizada de supuestos, convenciones, resultados establecidos y problemas abiertos. Los agentes pueden proponer nuevos *claims* (afirmaciones) únicamente como pasos locales hacia los problemas abiertos declarados en el `.tex` o de manera claramente motivada por el mismo.
+Este repositorio está destinado a realizar trabajo teórico formal asistido sobre `Problema.tex`. El archivo `Problema.tex` es la fuente autorizada de supuestos, convenciones, resultados establecidos y problemas abiertos. Los agentes pueden proponer nuevos *claims* (afirmaciones) únicamente como pasos locales hacia los problemas abiertos declarados en `Problema.tex` o de manera claramente motivada por el mismo.
 
 ## Convenciones fijas (no negociables)
 

@@ -125,7 +125,7 @@ Convenciones operativas que `AGENTS.md` fija para el workflow:
 
 Coincidencias principales:
 
-- Los tres documentos toman `Problema.tex` como fuente autorizada para convenciones,
+- AGENTS.md, FORMAL_METHODS_GUIDE.md y este reporte toman `Problema.tex` como fuente autorizada para convenciones,
   resultados establecidos y problemas abiertos.
 - `AGENTS.md` y `Problema.tex` coinciden en la derivada covariante
   `D_mu = partial_mu - i q A_mu`.
@@ -140,7 +140,7 @@ Coincidencias principales:
 
 Diferencias de nivel:
 
-- `Problema.tex` es documento teorico de referencia: contiene formulacion fisica,
+- `Problema.tex` contiene formulacion fisica,
   convenciones de lectura y lista de problemas abiertos.
 - `AGENTS.md` es protocolo operativo: fija reglas duras, estados de claims,
   inmutabilidad y restricciones de uso.
