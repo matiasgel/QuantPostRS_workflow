@@ -19,7 +19,7 @@ Estas convenciones no deben ser modificadas sin una decisión explícita registr
 
 ## Regla anti-deriva (corpus inmutable)
 
-El `corpus/` es el archivo histórico. Los artefactos que se añaden a `corpus/` (claims, scripts, reportes, evaluaciones, interpretaciones, decisiones) son *inmutables*: no pueden modificarse ni borrarse. Para revisiones o refutaciones se deben crear nuevos artefactos que hagan referencia explícita a los anteriores (`supersedes`, `refutes`, etc.).  
+En este repositorio, el corpus histórico es un corpus lógico distribuido en carpetas de primer nivel: `open_questions/`, `claims/`, `scripts/`, `reports/`, `evaluations/`, `interpretations/` y `decisions/`. Los artefactos que se añaden a esas carpetas son *inmutables*: no pueden modificarse ni borrarse. Para revisiones o refutaciones se deben crear nuevos artefactos que hagan referencia explícita a los anteriores (`supersedes`, `refutes`, etc.).  
 Los archivos de trabajo y revisiones (`working/`, `reviews/`) sí pueden modificarse; no son evidencia primaria.
 
 ## Flujo de trabajo general
@@ -68,7 +68,7 @@ Solo claims `TESTED_PASS` pueden usarse como premisa para conclusiones físicas.
 
 ## Acciones prohibidas
 
-- Editar o borrar artefactos en `corpus/`.
+- Editar o borrar artefactos del corpus lógico distribuido (`open_questions/`, `claims/`, `scripts/`, `reports/`, `evaluations/`, `interpretations/`, `decisions/`).
 - Cambiar el `Problema.tex .
 - Ajustar los scripts para que el residuo desaparezca eliminando términos en la definición original.
 - Reemplazar definiciones para evitar residuo sin documentarlo.
