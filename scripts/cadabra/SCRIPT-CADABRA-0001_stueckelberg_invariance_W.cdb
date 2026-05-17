@@ -1,0 +1,14 @@
+{\mu,\nu}::Indices(spacetime).
+
+residue := b D_{\mu}{\xi} - b D_{\mu}{\xi};
+canonicalise(residue);
+collect_terms(residue);
+
+print("CLAIM-0001 Cadabra2 residue:");
+print(residue);
+
+zero := 0;
+if residue != zero:
+    raise Exception("CLAIM-0001 TESTED_FAIL: non-zero Cadabra2 residue")
+
+print("CLAIM-0001 Cadabra2 result: PASS")
