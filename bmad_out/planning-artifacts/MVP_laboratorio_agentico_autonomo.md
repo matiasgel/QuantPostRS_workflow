@@ -1117,6 +1117,131 @@ Si el state machine crece a 20+ estados, vale la pena reconsiderar.
 
 ---
 
+### 5.11 Alternativa de costos: modelos Qwen vía API
+
+Esta sección analiza el uso de modelos **Qwen** (Alibaba) como alternativa o complemento a los modelos de Anthropic. Los precios se obtienen de OpenRouter (estado: 26 de mayo de 2026), que expone todos los modelos Qwen con API OpenAI-compatible, lo que permite integrarlos con LiteLLM sin ningún cambio en el código del daemon.
+
+#### Catálogo de modelos Qwen disponibles (precios reales vía OpenRouter)
+
+| Modelo | Parámetros | Ctx | Input $/Mtok | Output $/Mtok | Caching | Rol sugerido |
+|--------|-----------|-----|-------------|--------------|---------|--------------|
+| **qwen/qwen3.7-max** | ~MoE | 1M | $2.50 | $7.50 | ✅ explícito | Razonamiento científico (reemplaza Opus) |
+| **qwen/qwen3.6-max-preview** | ~1T MoE | 262K | $1.04 | $6.24 | — | Razonamiento avanzado (alternativa a Opus) |
+| **qwen/qwen3.6-plus** | 263B MoE | 1M | $0.325 | $1.95 | — | Ejecutor de episodios (reemplaza Sonnet) |
+| **qwen/qwen3.5-397b-a17b** | 397B-A17B | 262K | $0.39 | $2.34 | — | Ejecutor robusto (alternativa Sonnet) |
+| **qwen/qwen3.6-flash** | MoE | 1M | $0.1875 | $1.125 | ✅ explícito | Ejecutor rápido / auditor |
+| **qwen/qwen3.5-flash** | — | 1M | $0.065 | $0.26 | — | Auditor / summarizer |
+| **qwen/qwen3.6-35b-a3b** | 35B-A3B | 262K | $0.15 | $1.00 | — | Auditor / routing |
+| **qwen/qwen3-235b-a22b-2507** | 235B-A22B | 262K | $0.071 | $0.10 | — | Router / auditor (excepcional relación calidad/precio) |
+| **qwen/qwen3.5-9b** | 9B | 262K | $0.04 | $0.15 | — | Routing simple / formato YAML |
+
+> **Nota:** Precios vía OpenRouter (routing internacional). DashScope directo (Alibaba Cloud) puede ser más barato para alta frecuencia pero requiere cuenta china. `qwen3.7-max` y `qwen3.6-flash` soportan prompt caching explícito con pricing diferenciado.
+
+#### Comparación de costos: Claude vs. Qwen — mismo episodio de referencia
+
+El mismo episodio CLAIM-0002 (9,500 tokens entrada / 6,000 tokens salida):
+
+```
+╔══════════════════════════════════════════════════════════╗
+║  ESCENARIO 1: Claude puro, sin optimización              ║
+║  Executor: claude-sonnet-4-5                             ║
+║  Input:  9,500 × $3.00/Mtok  = $0.0285                  ║
+║  Output: 6,000 × $15.00/Mtok = $0.0900                  ║
+║  Por episodio: $0.12  │  100 episodios: $12.00           ║
+╠══════════════════════════════════════════════════════════╣
+║  ESCENARIO 2: Claude optimizado (sección 5.2)            ║
+║  Executor: claude-sonnet-4-5 + caching + Haiku routing   ║
+║  Por episodio: $0.025-0.04  │  100 episodios: ~$3.25     ║
+╠══════════════════════════════════════════════════════════╣
+║  ESCENARIO 3: Qwen puro, sin optimización                ║
+║  Executor: qwen3.6-plus                                  ║
+║  Input:  9,500 × $0.325/Mtok = $0.0031                  ║
+║  Output: 6,000 × $1.95/Mtok  = $0.0117                  ║
+║  Por episodio: $0.015  │  100 episodios: $1.50           ║
+╠══════════════════════════════════════════════════════════╣
+║  ESCENARIO 4: Qwen optimizado (split por rol)            ║
+║  Router:   qwen3-235b-a22b-2507 ($0.071/$0.10)          ║
+║  Executor: qwen3.6-flash ($0.1875/$1.125) + caching      ║
+║  Auditor:  qwen3-235b-a22b-2507                          ║
+║  Por episodio: ~$0.007  │  100 episodios: ~$0.70         ║
+╠══════════════════════════════════════════════════════════╣
+║  ESCENARIO 5: Híbrido recomendado para MVP               ║
+║  Router:   qwen3-235b-a22b-2507 (barato, capaz)          ║
+║  Executor: claude-sonnet-4-5 + caching (calidad máx.)   ║
+║  Auditor:  qwen3-235b-a22b-2507                          ║
+║  Científico: qwen3.7-max (más barato que Opus)           ║
+║  Por episodio: ~$0.022  │  100 episodios: ~$2.20         ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+#### Mapeo de roles: Claude → Qwen
+
+| Rol | Claude (original) | Qwen (alternativa) | Ahorro aprox. |
+|-----|-------------------|--------------------|---------------|
+| **Routing / selección episodio** | claude-haiku-3.5 ($0.80/$4) | qwen3-235b-a22b-2507 ($0.071/$0.10) | ~90% |
+| **Auditoría de artefactos** | claude-haiku-3.5 | qwen3-235b-a22b-2507 | ~90% |
+| **Resúmenes para Telegram** | claude-haiku-3.5 | qwen3.5-9b ($0.04/$0.15) | ~95% |
+| **Ejecución de episodios** | claude-sonnet-4-5 ($3/$15) | qwen3.6-plus ($0.325/$1.95) | ~87% |
+| **Razonamiento BRST/espectro** | claude-opus-4-1 ($15/$75) | qwen3.7-max ($2.50/$7.50) | ~83% |
+
+> **Caveat crítico sobre calidad:** Qwen3.6-Plus y Qwen3.7-Max tienen excelentes benchmarks en código y razonamiento general, pero su comportamiento específico en **álgebra de Clifford, trazas de gamma y formalismo BRST** no está validado para este proyecto. **La recomendación es comenzar con el Escenario 5 (híbrido)**: Qwen para routing y auditoría (bajo riesgo), Claude Sonnet para la ejecución del episodio hasta que se valide experimentalmente que Qwen ejecuta episodios correctamente.
+
+#### Integración con LiteLLM (cambio mínimo de código)
+
+```python
+# ModelRouter actualizado para soporte Qwen + Claude
+import litellm
+from litellm import completion
+
+class ModelRouter:
+    MODELS = {
+        # OpenAI-compatible via LiteLLM → OpenRouter
+        "router":     "openrouter/qwen/qwen3-235b-a22b-2507",
+        "auditor":    "openrouter/qwen/qwen3-235b-a22b-2507",
+        "summarizer": "openrouter/qwen/qwen3.5-9b",
+        # Claude para la ejecución (calidad garantizada)
+        "executor":   "anthropic/claude-sonnet-4-5",
+        # Qwen más barato que Opus para razonamiento avanzado
+        "scientific": "openrouter/qwen/qwen3.7-max",
+    }
+
+    def call(self, role: str, messages: list, **kwargs) -> str:
+        model = self.MODELS[role]
+        response = completion(model=model, messages=messages, **kwargs)
+        return response.choices[0].message.content
+
+# Configuración de LiteLLM (.env)
+# OPENROUTER_API_KEY=...  (una sola clave para todos los modelos Qwen)
+# ANTHROPIC_API_KEY=...   (para Claude en el executor)
+```
+
+LiteLLM resuelve automáticamente la autenticación, retry, fallback y logging. Un solo `pip install litellm` da acceso a todos los modelos de la tabla.
+
+#### Prompt caching en Qwen
+
+`qwen3.7-max` y `qwen3.6-flash` soportan caching explícito vía OpenRouter. La sintaxis es idéntica a la de Anthropic (ambos usan el campo `cache_control`), por lo que el código de la sección 5.3 funciona sin modificaciones si se migra a estos modelos.
+
+#### Estrategia de migración progresiva
+
+```
+Semana 1: Validar routing con qwen3-235b-a22b-2507
+  → Ejecutar 5 ciclos de selección de episodio
+  → Comparar con output de Haiku: ¿selecciona el mismo episodio?
+  → Si OK: migrar auditor también a Qwen
+
+Semana 2: Validar executor con qwen3.6-plus
+  → Ejecutar CLAIM-0002 completo con Qwen como executor
+  → Auditar los artefactos con el auditor Python (no LLM)
+  → Comparar con el output de Claude Sonnet: ¿convenciones correctas?
+  → Si OK: migrar executor a Qwen
+
+Semana 3+: Validar razonamiento científico con qwen3.7-max
+  → Solo para episodios BRST/espectro (alta complejidad algebraica)
+  → Esta validación puede tardar semanas — no urgente para MVP
+```
+
+---
+
 ## 6. Guardas de intervención humana — especificación completa
 
 Esta sección define exactamente qué condiciones activan una guarda, qué mensaje se envía, qué opciones tiene el Físico, y qué hace el daemon con cada respuesta.
