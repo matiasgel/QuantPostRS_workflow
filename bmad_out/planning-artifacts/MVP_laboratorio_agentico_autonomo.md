@@ -1242,6 +1242,233 @@ Semana 3+: Validar razonamiento científico con qwen3.7-max
 
 ---
 
+### 5.12 Observabilidad del razonamiento — cómo y por qué
+
+Esta sección explica el beneficio concreto de instrumentar el razonamiento interno del LLM en el contexto de un laboratorio de investigación formal. Es una de las mejoras de mayor relación impacto/costo del sistema.
+
+#### El problema sin observabilidad
+
+Sin instrumentación, el daemon solo ve el output final del LLM: un conjunto de artefactos `.md` y el output de los scripts. Si el agente produce `TESTED_PASS` de forma incorrecta (residuo fabricado, convención ignorada, mutation test omitido), el daemon lo acepta como válido. El auditor Python solo puede verificar estructura y sintaxis, no la coherencia del razonamiento.
+
+**Casos de fallo silencioso detectados en proyectos similares:**
+- El LLM escribe `Residuo: 0` en el REPORT sin haber ejecutado `run_cadabra2` (hallucination)
+- El LLM simplifica algebraicamente de forma incorrecta y llega a 0 por un error de signo cancelatorio
+- El LLM "recuerda" una identidad gamma de otro contexto de entrenamiento y la aplica sin verificar
+
+En el corpus de QuantPostRS, un `TESTED_PASS` falso es especialmente peligroso porque se convierte en premisa de todos los claims dependientes. **Un solo PASS hallusinado puede invalidar una cadena entera de claims.**
+
+#### Qué agrega la observabilidad del razonamiento
+
+Un sistema de observabilidad LLM captura:
+
+1. **Trazas completas de cada llamada**: input, output, tool calls, latencia, tokens, costo
+2. **Reasoning traces** (bloques `<thinking>` de Claude / tokens de razonamiento de Qwen3): el proceso interno antes del output final
+3. **Árbol de tool calls**: qué herramientas llamó, en qué orden, con qué parámetros, qué retornaron
+4. **Métricas agregadas**: costo por tipo de episodio, tasa de PASS/FAIL, latencia por modelo
+
+Para QuantPostRS, los puntos 2 y 3 son los más valiosos: **el razonamiento interno del LLM y la secuencia exacta de tool calls se convierten en evidencia auditable** de que el PASS es genuino.
+
+#### Herramienta recomendada: Langfuse (self-hosted)
+
+[Langfuse](https://langfuse.com) es la opción óptima para el MVP:
+
+| Criterio | Langfuse | LangSmith | Arize Phoenix | W&B Weave |
+|----------|----------|-----------|---------------|-----------|
+| Self-hosted | ✅ Docker | ❌ Solo cloud | ✅ Open source | ❌ Solo cloud |
+| Costo para MVP | **$0** (self-hosted) | $39/mes | $0 (local) | $0-39/mes |
+| Integración LiteLLM | ✅ Nativa | ✅ | ✅ | ✅ |
+| Capture de thinking | ✅ | ✅ | ✅ | ✅ |
+| UI de traces | ✅ Excelente | ✅ | ✅ | 🟡 |
+| Evaluaciones custom | ✅ | ✅ | 🟡 | ✅ |
+| Runs offline (sin internet) | ✅ Docker local | ❌ | ✅ | ❌ |
+
+**Langfuse self-hosted** levanta en Docker con `docker-compose up` y almacena todo localmente. Ideal para un proyecto de investigación que no quiere subir datos a la nube.
+
+#### Integración en 3 líneas vía LiteLLM
+
+LiteLLM tiene soporte nativo para Langfuse: con dos variables de entorno, **toda llamada LLM del daemon queda automáticamente registrada** sin cambiar ningún código de llamada:
+
+```python
+# .env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://localhost:3000  # instancia local Docker
+
+# En el daemon, una sola vez al inicializar
+import litellm
+litellm.success_callback = ["langfuse"]
+litellm.failure_callback = ["langfuse"]
+
+# A partir de aquí, TODAS las llamadas via litellm.completion()
+# quedan registradas automáticamente con:
+#   - input/output completo
+#   - tokens y costo
+#   - latencia
+#   - modelo usado
+#   - tool calls y resultados
+```
+
+Para capturar metadata del episodio (claim_id, tipo, fase):
+
+```python
+from litellm import completion
+
+response = completion(
+    model="anthropic/claude-sonnet-4-5",
+    messages=messages,
+    metadata={
+        # Langfuse usa estos campos para organizar las trazas
+        "langfuse_trace_name": f"episode_{episodio.id}",
+        "langfuse_tags": [episodio.tipo, episodio.id, f"fase-{episodio.fase}"],
+        "langfuse_user_id": "daemon",
+        "langfuse_session_id": f"daemon-run-{fecha}",
+    }
+)
+```
+
+#### Captura de reasoning traces (bloques `<thinking>`)
+
+Claude 3.5/4 y Qwen3-family pueden exponer su razonamiento interno via "extended thinking". Para claims de alta complejidad (BRST, espectro), activar thinking y capturar el trace tiene valor directo:
+
+```python
+# Para episodios científicos complejos (BRST, espectro)
+response = anthropic_client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=16000,
+    thinking={
+        "type": "enabled",
+        "budget_tokens": 10000  # tokens de razonamiento interno
+    },
+    messages=messages
+)
+
+# Separar thinking del output final
+thinking_trace = ""
+output_text = ""
+for block in response.content:
+    if block.type == "thinking":
+        thinking_trace = block.thinking
+    elif block.type == "text":
+        output_text = block.text
+
+# Guardar el thinking trace en working/ (no es corpus primario)
+# → permite auditar el razonamiento sin contaminarlo como artefacto formal
+with open(f"working/thinking_{episodio.id}_{timestamp}.md", "w") as f:
+    f.write(f"# Reasoning trace — {episodio.id}\n\n{thinking_trace}")
+```
+
+**Beneficio concreto:** si un claim produce `TESTED_PASS` pero el Físico tiene dudas, puede leer el thinking trace y ver exactamente cómo el LLM llegó a esa conclusión. Si el trace muestra "asumiré que este término es cero porque parece serlo", la guarda G-02 (contradicción) puede activarse preventivamente.
+
+#### El árbol de tool calls como evidencia de ejecución real
+
+La observabilidad de tool calls resuelve el problema del "residuo fabricado". Langfuse registra automáticamente cada tool call con su resultado:
+
+```
+Traza: CLAIM-0002 — 2026-05-27T03:14:23Z
+  ├── [tool] write_file("claims/CLAIM-0002.md")          → OK
+  ├── [tool] write_file("scripts/cadabra/SCRIPT-0002.cdb") → OK
+  ├── [tool] run_cadabra2("scripts/cadabra/SCRIPT-0002.cdb")
+  │     input:  "scripts/cadabra/SCRIPT-0002.cdb"
+  │     output: "Residuo: 0\nExited normally."
+  │     latencia: 4.2s
+  ├── [tool] write_file("scripts/sage/SCRIPT-0002.sage")  → OK
+  ├── [tool] run_sagemath("scripts/sage/SCRIPT-0002.sage")
+  │     input:  "scripts/sage/SCRIPT-0002.sage"
+  │     output: "Residuo: [0, 0, 0, 0]\n"
+  │     latencia: 2.8s
+  ├── [mutation] run_sagemath con b modificado
+  │     output: "Residuo: [-0.047+0.031j, ...]\n"  ← no es cero
+  ├── [tool] write_file("reports/REPORT-0002.md")         → OK
+  └── [tool] write_file("evaluations/EVAL-0002.md")       → OK
+```
+
+El auditor Python puede verificar esta traza: **si `run_cadabra2` no aparece en el árbol de tool calls, el PASS es inválido**, independientemente de lo que diga el REPORT. Esto cierra la brecha entre lo que el LLM *dice* que hizo y lo que *realmente* hizo.
+
+#### Evaluaciones automáticas del corpus sobre las trazas
+
+Langfuse permite definir "evaluadores" que corren sobre cada traza y producen un score. Para QuantPostRS:
+
+```python
+# Evaluador: ¿el episodio ejecutó los scripts antes de declarar PASS?
+def eval_scripts_ejecutados(trace) -> Score:
+    tool_calls = [s for s in trace.spans if s.name.startswith("run_")]
+    cadabra_ran = any("cadabra" in s.name for s in tool_calls)
+    sage_ran = any("sage" in s.name for s in tool_calls)
+    mutation_ran = any("mutation" in (s.metadata or {}).get("tipo","") for s in tool_calls)
+
+    if cadabra_ran and sage_ran and mutation_ran:
+        return Score(name="scripts_ejecutados", value=1.0, comment="PASS genuino")
+    return Score(name="scripts_ejecutados", value=0.0,
+                 comment=f"Falta: cadabra={cadabra_ran} sage={sage_ran} mut={mutation_ran}")
+
+# Evaluador: ¿el razonamiento menciona las convenciones del proyecto?
+def eval_convenciones_citadas(trace) -> Score:
+    thinking = trace.get_thinking_text()
+    keywords = ["η = diag(+1,-1,-1,-1)", "D_μ = ∂_μ - iq", "AGENTS.md"]
+    citadas = sum(1 for k in keywords if k in thinking)
+    return Score(name="convenciones_citadas", value=citadas / len(keywords))
+```
+
+Estos scores aparecen en el dashboard de Langfuse y el daemon puede consultarlos para decidir si un episodio merece confianza o debe escalar al Físico.
+
+#### Dashboard operativo en la práctica
+
+Con Langfuse corriendo localmente en Docker, el Físico (o el daemon) puede ver:
+
+```
+Dashboard Langfuse — QuantPostRS Lab
+────────────────────────────────────
+Episodios hoy:         7
+  TESTED_PASS genuino: 5  (score scripts_ejecutados = 1.0)
+  TESTED_PASS dudoso:  1  (score = 0.6, falta mutation test en trace)
+  TESTED_FAIL:         1
+
+Costo hoy:             $0.18
+  Router (Qwen):       $0.003
+  Executor (Claude):   $0.163
+  Auditor (Qwen):      $0.014
+
+Latencia media:        4m 12s por episodio
+Modelo más lento:      qwen3.7-max (reasoning tokens: 8,200)
+
+Alerta: EVAL-0005 marcado PASS pero run_cadabra2 no aparece en trace
+→ Escalando a guarda G-01
+```
+
+La alerta del último ítem es **imposible de detectar sin observabilidad**: el REPORT y EVAL del corpus dicen PASS, pero la traza revela que el script nunca se ejecutó.
+
+#### Costo y setup del MVP
+
+```
+Langfuse self-hosted (Docker):
+  docker compose up -d   # Postgres + Redis + servidor web
+  Puerto: localhost:3000
+  Almacenamiento: ~100MB por 1000 trazas
+  Costo: $0 (self-hosted, open source)
+  RAM requerida: ~512MB adicionales
+
+Alternativa sin Docker (Arize Phoenix local):
+  pip install arize-phoenix
+  phoenix.launch_app()   # UI en localhost:6006
+  # Integración via OpenTelemetry, compatible con LiteLLM
+  Costo: $0, zero Docker
+```
+
+Para el MVP, **Arize Phoenix local** es la opción más simple si no se quiere Docker: un `pip install` y una línea de código, todo en el mismo proceso Python del daemon.
+
+#### Resumen: qué mejora específicamente en QuantPostRS
+
+| Sin observabilidad | Con observabilidad |
+|--------------------|-------------------|
+| No se puede distinguir PASS genuino de hallucination | Árbol de tool calls prueba ejecución real |
+| Debugging de episodio fallido requiere releer todo el prompt | Traza muestra exactamente dónde falló |
+| Costo acumulado solo visible en factura mensual de Anthropic | Dashboard en tiempo real con atribución por episodio |
+| No hay evidencia del razonamiento algebraico del LLM | Thinking trace guardado en `working/` es auditable |
+| Imposible saber por qué el auditor rechazó un artefacto | Span de auditoría con score y comment |
+| Migración Qwen→Claude requiere comparación manual | Comparar trazas de ambos modelos lado a lado en Langfuse |
+
+---
+
 ## 6. Guardas de intervención humana — especificación completa
 
 Esta sección define exactamente qué condiciones activan una guarda, qué mensaje se envía, qué opciones tiene el Físico, y qué hace el daemon con cada respuesta.
